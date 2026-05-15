@@ -491,7 +491,199 @@ TODO Phase 2: `openOrders(for:)`, `userFills(for:)`, the matching `InfoRequest` 
 
 ---
 
-## Status
+## Status (Phase 1)
 
-This document is now at the Phase 1 baseline. Next revision is Phase 3 (WebSocket concurrency model, reconnect state machine).
+The sections above are the Phase 1 baseline. Phase 2 additions follow as §16–§22.
+
+---
+
+# Phase 2 — open orders and recent fills
+
+This section extends the networking layer with the two remaining REST endpoints needed for v1 read-only screens: `openOrders` and `userFills`. It also pins the conventions every later phase inherits: how we encode `side` across DTO and domain, what the cap/pagination story is, and which view-model pattern the two new tabs follow (same as Phase 1's `PositionsViewModel`).
+
+Code-level signatures live in the package sources:
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/OpenOrder.swift`
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/Fill.swift`
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/DTOs/OpenOrdersDTO.swift`
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/DTOs/UserFillsDTO.swift`
+
+Stubs throw `fatalError("Phase 2 ios-developer")` for method bodies; type, DTO, and protocol declarations are real. Read the source doc-comments alongside this section.
+
+---
+
+## 16. `HyperliquidClient` — Phase 2 additions
+
+Two new methods on the same protocol. Adding methods to a Swift protocol is **non-breaking for existing concrete conformers only when those conformers add the new methods too**; we ship updated test fakes and the production client in the same change. There is no `extension HyperliquidClient` default implementation — every conformer is required to implement every endpoint, intentionally. A "client that only does Phase 1" is not a thing we want to express in the type system.
+
+```swift
+public protocol HyperliquidClient: Sendable {
+    func clearinghouseState(for user: Address) async throws -> ClearinghouseState
+    func openOrders(for user: Address) async throws -> [OpenOrder]
+    func userFills(for user: Address) async throws -> [Fill]
+}
+```
+
+Rules (unchanged from §11.1):
+- `async throws`. Errors are exclusively `HyperliquidError`. No new error cases are needed — see §19.
+- `Sendable`. The struct concrete impl remains a `struct` with `Sendable` dependencies. No actor introduced for the new endpoints.
+- Methods do not return DTOs. The client maps wire DTOs to `OpenOrder` / `Fill` domain values inside the client; the rest of the app never sees a DTO.
+- `Task.checkCancellation()` between transport and decode (same pattern as `clearinghouseState`).
+- No retry inside the client (§11.6 still binding).
+
+`InfoRequest` gains two cases:
+
+```swift
+case openOrders(user: Address)
+case userFills(user: Address)
+```
+
+Each encodes to `{"type": "<discriminator>", "user": "0x..."}` exactly like the existing case. The flat-encode pattern (§11.3) holds.
+
+---
+
+## 17. Pagination, cap, and sort
+
+### 17.1 `openOrders`
+
+No cap. Hyperliquid returns only currently-resting orders, which is bounded by Hyperliquid's per-account order-count limit (small two-digit numbers in practice). Capping here would buy nothing and could hide real account state. If a future product signal says "users have hundreds of open algos," we revisit.
+
+### 17.2 `userFills` — cap at 200, no fetch-more
+
+Hyperliquid's `userFills` endpoint **does not paginate**. The response is the user's recent fills (server-side window). Three options were on the table:
+
+| Option | Verdict | Why |
+|---|---|---|
+| (a) Cap at the transport layer to first N (e.g. 200) | **Chosen** | Bounded memory and render cost; view models stay trivial; users see "most recent N" which is the only thing the API meaningfully exposes. |
+| (b) Pass everything through and let the view show a "Showing recent N" footer above a threshold | Rejected | Asymmetric responsibility — the client returns unbounded data but the view promises a bound. Either layer can break the contract on its own. |
+| (c) Infinite-scroll fetch-more | Rejected | API does not paginate. There is no `before:tid` cursor. We'd be lying with a UI affordance backed by nothing. |
+
+The cap is **200** in Phase 2. Rationale: covers the realistic-active-trader case (~hundreds of fills per week) without paging in MB of JSON onto an iPhone screen; below the threshold where SwiftUI `List` lazy loading starts to matter materially. Exposed as `public static let userFillsCap: Int = 200` on `URLSessionHyperliquidClient` so tests can assert on it and a later phase can bump it via a decision entry. The cap is a transport-level slice on `Array.prefix(_:)` after decode and after domain mapping; views render a footer ("Showing 200 most recent fills") only when `fills.count == 200`. That heuristic is good enough — when the server happens to return exactly 199, no footer is shown, and that is acceptable.
+
+### 17.3 Sort
+
+Both endpoints return arrays in their own server order, which is reverse-chronological in practice. The transport layer **does not re-sort** — DTOs reflect API order, the domain mapper preserves order. View models impose their preferred presentation sort:
+
+- `OrdersViewModel`: `orders.sorted { $0.placedAt > $1.placedAt }` (newest first).
+- `FillsViewModel`: `fills.sorted { $0.executedAt > $1.executedAt }` (newest first).
+
+Both sorts are stable in the value-equality sense (Swift's `sorted(by:)` is not technically stable, but the keys here are unique per element). View models that later want grouping (e.g. group-by-day on fills) compute groupings on the sorted array.
+
+The transport stays sort-agnostic on purpose: tests for the client assert on identity of returned arrays without imposing a sort, and a future "raw" caller (e.g. a debug screen) gets API truth.
+
+---
+
+## 18. DTO conventions for the new endpoints
+
+§11.3 binds. Re-stating the parts that interact with new wire shapes:
+
+- Each endpoint returns a top-level JSON array. DTOs are modeled as `internal struct OpenOrderDTO: Decodable, Sendable` and `internal struct UserFillDTO: Decodable, Sendable`; the client decodes `[OpenOrderDTO].self` / `[UserFillDTO].self` directly with `JSONDecoder`.
+- **Money fields use `@DecimalString` everywhere.** `limitPx`, `sz`, `triggerPx`, `origSz` on orders; `px`, `sz`, `fee`, `closedPnl` on fills. `@OptionalDecimalString` for the two genuinely-optional money fields (`origSz`, `triggerPx`). `closedPnl` is **non-optional** — the wire always sends it, even as `"0.0"` on opening fills.
+- **`side` on the wire is `"B"` (buy) or `"A"` (ask / sell).** The DTO holds it as a `String`. The mapper translates to `OpenOrder.Side` / `Fill.Side` (a closed `.buy`/`.sell` enum); unknown wire strings throw `HyperliquidError.unexpectedResponse(reason:)`. The domain types never expose `"B"`/`"A"`. (Decision logged.)
+- **`orderType` on the wire is a human-readable string** (`"Limit"`, `"Trigger"`, `"Stop Limit"`, `"Stop Market"`, `"Take Profit Limit"`, `"Take Profit Market"`). The DTO holds it as `String`. The mapper translates to `OpenOrder.OrderType` (closed enum); unknown wire strings throw `HyperliquidError.unexpectedResponse(reason:)`. As with `LeverageMode`, the closed enum is a feature: a new HL order type lands as a compile-time failure in the mapper, not a silent default in the UI.
+- **`dir` (fill direction) on the wire is preserved verbatim** as `Fill.direction: String`. It is the primary descriptor in the fills UI — `"Open Long"` is more informative than `.buy`. The closed-enum exercise can wait (decision logged).
+- **`reduceOnly` and `origSz` may be missing from the wire.** Modeled as `Bool?` / `Decimal?` in the DTO. The mapper defaults `reduceOnly` to `false` (Hyperliquid's documented convention) and passes `origSz` through as-is — views render `size` when `origSize == nil`.
+- **Empty-string-as-nil rule:** we do not encounter this on these endpoints. If a future Hyperliquid response sends `""` for an optional money field, `@OptionalDecimalString` rejects it (the parser refuses empty strings) and the decode fails with a path-aware error. That is the desired behavior — we re-decide explicitly via a decision entry rather than silently coercing to `nil`.
+
+---
+
+## 19. Error mapping — unchanged
+
+Phase 2 adds **no new `HyperliquidError` cases**. The six cases from §11.4 cover everything the new endpoints can fail with:
+
+- Transport / offline / timeout — handled by the existing `URLError` mapping.
+- Non-2xx HTTP — `.httpStatus(Int)`. Hyperliquid returns 422 with an empty body when the address is malformed, which is the most common 4xx; the view model's existing `.badRequest` rendering applies unchanged.
+- Decode failures — `.decoding(underlying:)`.
+- Unknown enum values from the wire (`side` not in `B`/`A`, `orderType` not in the known list) — `.unexpectedResponse(reason:)`.
+
+The view-model `ViewErrorState` enum is unchanged (§11.4). Adding cases there would force every existing view to recompile its `switch`; nothing about Phase 2 motivates that.
+
+---
+
+## 20. View-model pattern for the new tabs
+
+Each new tab gets its own `@MainActor @Observable final class`. The shape is the same as Phase 1's `PositionsViewModel` (§13). Sketches only — `ios-developer` implements:
+
+```swift
+@MainActor @Observable final class OrdersViewModel {
+    enum State: Sendable, Equatable {
+        case idle
+        case loading
+        case loaded([OpenOrder])
+        case error(ViewErrorState, lastLoaded: [OpenOrder]?)
+    }
+    private(set) var state: State = .idle
+
+    private let client: any HyperliquidClient
+    private let address: Address
+    private let clock: any Clock
+
+    init(client: any HyperliquidClient, address: Address, clock: any Clock) { … }
+    func load() async { … }
+    func refresh() async { … }
+}
+
+@MainActor @Observable final class FillsViewModel {
+    enum State: Sendable, Equatable {
+        case idle
+        case loading
+        case loaded([Fill])
+        case error(ViewErrorState, lastLoaded: [Fill]?)
+    }
+    // same shape as above
+}
+```
+
+Rules (§13 binds; the parts worth re-stating):
+
+- **`lastLoaded` is the same affordance as Phase 1.** On refresh failure, the view model produces `.error(_, lastLoaded: previousArray)` so the UI keeps showing prior data dimmed with an inline error banner over the top. The view models extract `lastLoaded` by reading their current `state` before kicking off the refresh; if the current state is `.loaded(x)`, the refresh keeps `x` available for the failure path. Cold-load failures produce `.error(_, lastLoaded: nil)`.
+- **No shared store across tabs in Phase 2.** Each tab owns its own view model. The composition root constructs three view models (`PositionsViewModel`, `OrdersViewModel`, `FillsViewModel`) and hands each to its tab. On tab appear, the view model runs `.task { await viewModel.load() }`; on pull-to-refresh, `.refreshable { await viewModel.refresh() }`. This duplicates the address-and-clock plumbing across three constructors — acceptable cost. The shared-store question (a single account store that fans out to all three tabs) lands in Phase 3 when the WebSocket gives us a reason for one source of truth across screens. (Decision logged.)
+- **Refetch on appear is the v1 contract.** Tabs do not cache across navigation in Phase 2 — switching to Orders refetches Orders. SwiftUI's `.task` re-runs when the view appears; that is the mechanism. If the user feels this is too aggressive, we revisit in Phase 3 once we have a live store.
+- **Cancellation** is identical to Phase 1: `.task` cancels on disappear, `.refreshable` awaits to completion, the view model checks `Task.isCancelled` between the await and the `state` assignment.
+
+---
+
+## 21. Composition root — Phase 2 wiring
+
+`OpenHLApp.swift` constructs the client and address store once. `RootView` reads `addressStore.load()` and either shows address entry or the **section/tab shell**. The shell is `ios-developer`'s territory (per the navigation spec from `uxui-designer`); from a wiring perspective it constructs three view models with the same `(client, address, clock)` triple and hands each to its tab.
+
+No new types in `OpenHLCore` or `HyperliquidAPI` are required at the composition layer. The `HyperliquidClient` protocol gained two methods; the same single instance serves all three view models.
+
+---
+
+## 22. Test fixtures and `URLProtocol` stubs
+
+Same layout as §11.7. New fixtures land under:
+
+```
+Packages/HyperliquidAPI/Tests/HyperliquidAPITests/Fixtures/
+  openOrders_typical.json
+  openOrders_empty.json
+  openOrders_withTrigger.json
+  openOrders_missingOptionalFields.json   # origSz / reduceOnly absent
+  openOrders_unknownOrderType.json        # negative-path mapper test
+  openOrders_unknownSide.json             # negative-path mapper test
+  userFills_typical.json
+  userFills_empty.json
+  userFills_singleLiquidation.json
+  userFills_overCap.json                  # > 200 entries; asserts cap behavior
+  userFills_malformed_decimal.json        # negative-path decoder test
+```
+
+`Package.swift` already declares `.copy("Fixtures")` on the test target; new files in the directory are picked up automatically.
+
+`FakeHyperliquidClient` (in `Tests/HyperliquidAPITests/Support/`) is extended with `openOrdersResult: Result<[OpenOrder], HyperliquidError>` and `userFillsResult: Result<[Fill], HyperliquidError>` so view-model tests can drive both endpoints without `URLSession`. The fake remains `@unchecked Sendable` with the same disclaimer as Phase 1.
+
+End-to-end tests use the existing `StubURLProtocol` — the URL is the same `/info`, the body discriminator is different. Tests assert on:
+- Request shape: URL, method, headers, body (decoded back into `InfoRequest` for round-trip verification).
+- Response decode: each fixture decodes without error; field values match expected `Decimal` values exactly.
+- Negative paths: malformed decimals throw `.decoding`; unknown enum values throw `.unexpectedResponse`.
+- Cap: the `userFills_overCap.json` fixture produces exactly `userFillsCap` results in the returned domain array.
+
+Tests must remain hermetic (no real network). The same rule from §11.7 binds.
+
+---
+
+## Status (Phase 2)
+
+This document is now at the Phase 2 baseline. Next revision is Phase 3 (WebSocket concurrency model, reconnect state machine, shared live store).
 

@@ -177,3 +177,78 @@ Append-only. Newest entries at the bottom. Each entry: date, title, context, dec
 - *No per-file header.* Rejected: excerpted snippets lose their license; tooling cannot detect.
 - *Multi-line copyright + license block per file.* Rejected: contributor friction; rots silently when authors change; offers no benefit over SPDX for an MIT project with a single canonical LICENSE file.
 
+---
+
+## 2026-05-15 — Cap `userFills` at 200 in the client; no fetch-more
+
+**Context:** Hyperliquid's `userFills` endpoint does not paginate. A single response can carry thousands of fills for an active account. Three options were credible: (a) cap at the transport layer at a fixed N; (b) pass everything through and let the view show a "Showing recent N" footer above a threshold; (c) infinite-scroll fetch-more.
+
+**Decision:** Option (a). `URLSessionHyperliquidClient.userFills(for:)` slices the response to the first **200** entries (which Hyperliquid returns in reverse-chronological order). The cap is exposed as `public static let userFillsCap: Int = 200` so tests can assert on it and a later phase can change it via a follow-up decision. Views render a footer "Showing 200 most recent fills" only when the returned array's count equals the cap.
+
+**Rationale:** A bounded transport contract is the simplest contract. View models stay trivial — they consume an array and render. Memory and SwiftUI render costs are bounded by construction; we never have to debug "why is the fills tab janky for power users." Option (c) is impossible because the API has no cursor. Option (b) splits the bound across two layers — the client returns unbounded data but the view promises a bound — which is exactly the kind of split responsibility that produces bugs at layer boundaries. 200 is empirical: covers the realistic active-trader case, well below the threshold where `List` lazy-loading complications start to matter, large enough that the "showing most recent" footer rarely fires unfairly. We will revisit the number, not the strategy, if usage data justifies it.
+
+**Alternatives considered:**
+- *No cap.* Rejected: unbounded JSON onto a phone is asking for a future crash report.
+- *Infinite scroll.* Rejected: the API does not support it. We are not building a fake affordance.
+- *Cap at the view layer.* Rejected: layer-split responsibility; either side can break the contract alone.
+- *Higher / lower cap (50, 100, 500).* Considered. 50 is too aggressive for an active trader; 500 starts to feel like "why didn't you just stream it." 200 is the comfortable middle.
+
+---
+
+## 2026-05-15 — Canonical `Side` enum (`.buy`/`.sell`) in domain; translate `"B"`/`"A"` at the mapper
+
+**Context:** Hyperliquid encodes order and fill side on the wire as `"B"` (buy) or `"A"` (ask = sell). The domain layer needs a representation that view models and tests can pattern-match cleanly. Options: (a) preserve the wire form (`String` "B"/"A") in domain types; (b) preserve as a typed wire enum `WireSide` re-exported; (c) translate to a Swift-idiomatic `.buy`/`.sell` enum at the DTO -> domain mapper.
+
+**Decision:** Option (c). Both `OpenOrder.Side` and `Fill.Side` are closed enums with cases `.buy` and `.sell`. DTOs hold `side: String`; the client's mapper translates and throws `HyperliquidError.unexpectedResponse(reason:)` for unknown values. Domain types and the rest of the app never see `"B"`/`"A"`.
+
+**Rationale:** Wire encoding is a transport concern. View models should pattern-match on intent (`case .buy: …`), not on protocol minutiae (`case "B": …`). A closed `.buy`/`.sell` enum gives exhaustive switching, no stringly-typed bugs, and a single fail-loud point if Hyperliquid ever introduces a third side encoding. The translation cost is one switch statement in the mapper per endpoint — negligible. Preserving the wire form would force every view-model and test site to either parse the string or know the convention; multiplying that knowledge across screens is exactly the sort of leak the layered architecture exists to prevent. Note this is the same pattern §11.3 already established for `leverage.type` in `clearinghouseState` — consistency, not novelty.
+
+**Alternatives considered:**
+- *Preserve wire `String`.* Rejected: stringly-typed at every consumption site; no exhaustive switching; a typo in a view (`"a"` vs `"A"`) silently misrenders.
+- *`WireSide { case B, A }`.* Rejected: surfaces the protocol vocabulary into UI code; cosmetic improvement only over the string option.
+- *Use the existing `ClearinghouseState.Position.Side` (`.long`/`.short`).* Rejected: a position's side is derived from signed `szi` and means "which direction am I in"; an order's side is `.buy`/`.sell` and means "which direction am I about to move." Conflating them is wrong despite the surface similarity.
+
+---
+
+## 2026-05-15 — `Fill.direction` is a verbatim wire `String`, not a closed enum, in Phase 2
+
+**Context:** Hyperliquid's fill payloads carry a `dir` field with values like `"Open Long"`, `"Close Short"`, `"Liquidated Long"`, `"Open Short"`, `"Close Long"`, `"Liquidated Short"`. This is strictly more informative than the binary `side`. Two design questions: (1) do we surface it at all, given we already surface `side`; (2) if we do, as a closed enum or a verbatim string.
+
+**Decision:** Surface it as `Fill.direction: String`, preserved verbatim from the wire. Do not introduce a closed enum in Phase 2. The fills UI uses `direction` as the primary descriptor for each row (more informative than "Buy/Sell"); `side` remains available for any code that needs the binary distinction.
+
+**Rationale:** The string is what the user wants to see, and what Hyperliquid itself shows in its own UI. We do not want to invent a synonym. A closed enum would be the right shape eventually — exhaustive switching, no typo risk — but enumerating it correctly requires confidence in the full Hyperliquid label set (which is poorly documented and may include cases we have not observed: partial liquidations, ADL, etc.). Phase 2 ships the screen; Phase 3 or later introduces the closed enum with a decision entry when we have confidence in the full set. Until then, preserving the string is honest: it says "we are passing through what the server said." Risk: a typo on Hyperliquid's side becomes a typo on our UI. Acceptable; their string is canonical.
+
+**Alternatives considered:**
+- *Closed `FillDirection` enum, throw on unknown.* Rejected for Phase 2: brittle in the face of poorly-documented wire vocabulary; would force `.unexpectedResponse` errors on first contact with any new HL fill label, even for benign new cases like "ADL Long."
+- *Closed enum with `.other(String)` fallback.* Considered. Defers the problem rather than solving it; the `.other` case becomes the de-facto string carrier anyway. If we add an enum, it should be exhaustive.
+- *Drop the field, render only `side`.* Rejected: loses the "Open" vs "Close" vs "Liquidated" distinction, which is precisely what a fills screen exists to communicate.
+
+---
+
+## 2026-05-15 — Three independent view models, no shared account store, in Phase 2
+
+**Context:** Positions, Orders, and Fills are three tabs sharing one address. A shared `AccountStore` (one source of truth across all three tabs, fanning state out via `@Observable`) is a credible architecture and would set up Phase 3's live store well.
+
+**Decision:** Each tab owns its own `@MainActor @Observable` view model in Phase 2. The composition root constructs `PositionsViewModel`, `OrdersViewModel`, and `FillsViewModel` with the same `(client, address, clock)` triple. No shared store. Each tab refetches on appear via `.task { await vm.load() }` and on pull via `.refreshable { await vm.refresh() }`.
+
+**Rationale:** Phase 2 has no cross-tab state to share. Each REST endpoint is independent; there is no reconciliation across them, no derived state that spans tabs. Introducing a store now would buy zero behavior and add a layer of indirection that does not pay rent. Phase 3 introduces WebSocket-driven updates, where one server event affects multiple screens (a fill closes a position, updates PnL, and appends to fills) — that is the right context to introduce a store, because it has real work to do. Building the store earlier is speculative architecture; we'd be designing for a load profile that does not yet exist. The duplication across three constructors (each takes `client`, `address`, `clock`) is mild and visible — the only cost. View models for the three tabs all share the same `State` enum shape (idle / loading / loaded / error-with-last-loaded), so the pattern is uniform without being unified.
+
+**Alternatives considered:**
+- *Single `AccountStore` injected via `@Environment`, view models read from it.* Rejected for Phase 2: ambient injection for no current benefit; would set a precedent that's hard to walk back. Reconsidered in Phase 3.
+- *Constructor-injected shared `AccountStore` for all three view models.* Rejected for Phase 2: same lack of justification; introduces a coordinator without a coordination problem.
+- *One mega-view-model owning all three lists.* Rejected: violates the per-feature-folder convention from §13.1; a single state machine for three independent endpoints is a worse error model (one endpoint's failure poisons all three views).
+
+---
+
+## 2026-05-15 — No new `HyperliquidError` cases for Phase 2
+
+**Context:** New endpoints could plausibly motivate new error cases (e.g. `.rateLimited`, `.malformedAddress`, `.userNotFound`).
+
+**Decision:** Phase 2 ships with the existing six cases of `HyperliquidError` (`.offline`, `.timeout`, `.httpStatus(Int)`, `.decoding`, `.unexpectedResponse`, `.transport`). No new cases.
+
+**Rationale:** The cases are descriptive of failure *kinds*, not endpoints. Every failure mode the new endpoints exhibit maps to an existing case: a malformed address returns HTTP 422 with an empty body (`.httpStatus(422)` -> view model's `.badRequest`); rate limiting returns 429 (`.httpStatus(429)` -> `.badRequest`); a brand-new wire enum value triggers `.unexpectedResponse`. Adding `.rateLimited` would require either re-mapping 429 specifically (which we'd then need to surface specially in views) or never firing — both bad. If a future product decision wants a distinct "you're being rate-limited, slow down" UI affordance, that gets a decision entry and a closed enum addition; until then, the six-case enum is the right granularity.
+
+**Alternatives considered:**
+- *Add `.rateLimited(retryAfter: Date?)`.* Rejected for Phase 2: no UI design exists for it, and Hyperliquid does not consistently emit `Retry-After`. The view-model's `.badRequest` rendering is the honest answer today.
+- *Add `.userNotFound`.* Rejected: Hyperliquid does not signal this distinctly from other 4xx; we would be inferring semantics we cannot reliably distinguish.
+
