@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 // OpenHLCore — shared value types, formatters, and error types.
-// Phase 0 placeholder. Implementation begins in Phase 1.
+//
+// Phase 1 public API surface is split across:
+//   - Address.swift           the `Address` value type
+//   - Money.swift             the `Money = Decimal` typealias
+//   - DecimalString.swift     the `@DecimalString` property wrapper
+//   - Formatters.swift        `MoneyFormatter` namespace
+//   - Clock.swift             `Clock` protocol + implementations
+//
+// This file retains only the module version constant.
 
 /// The current semantic version of the OpenHLCore package.
 /// Bumped alongside the app version; used in tests as a minimal
