@@ -14,6 +14,12 @@
 		E222BEB8479B48FECC20F30C /* OpenHLUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6C935F53ECAA4C658FB15D /* OpenHLUITests.swift */; };
 		ECC660761D019BECC56E9F2E /* OpenHLApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4217EF35642805A967ED7490 /* OpenHLApp.swift */; };
 		FB75C4AA05BF84AB17BCA30F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A34E97FC8298BD529A0107 /* Assets.xcassets */; };
+		AA000001000000000000AA01 /* AddressEntryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A001 /* AddressEntryViewModel.swift */; };
+		AA000001000000000000AA02 /* AddressEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A002 /* AddressEntryView.swift */; };
+		AA000001000000000000AA03 /* PositionsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A003 /* PositionsViewModel.swift */; };
+		AA000001000000000000AA04 /* PositionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A004 /* PositionsView.swift */; };
+		AA000001000000000000AA05 /* PreviewHyperliquidClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A005 /* PreviewHyperliquidClient.swift */; };
+		AA000001000000000000AA06 /* UITestStubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001000000000000A007 /* UITestStubClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +50,12 @@
 		7554D660B1271667F80164C8 /* OpenHLTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OpenHLTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9A6C935F53ECAA4C658FB15D /* OpenHLUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenHLUITests.swift; sourceTree = "<group>"; };
 		F2A34E97FC8298BD529A0107 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA000001000000000000A001 /* AddressEntryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressEntryViewModel.swift; sourceTree = "<group>"; };
+		AA000001000000000000A002 /* AddressEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressEntryView.swift; sourceTree = "<group>"; };
+		AA000001000000000000A003 /* PositionsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsViewModel.swift; sourceTree = "<group>"; };
+		AA000001000000000000A004 /* PositionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionsView.swift; sourceTree = "<group>"; };
+		AA000001000000000000A005 /* PreviewHyperliquidClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewHyperliquidClient.swift; sourceTree = "<group>"; };
+		AA000001000000000000A007 /* UITestStubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestStubClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +110,8 @@
 		55531380BEFB70BC2727D7E1 /* Positions */ = {
 			isa = PBXGroup;
 			children = (
+				AA000001000000000000A003 /* PositionsViewModel.swift */,
+				AA000001000000000000A004 /* PositionsView.swift */,
 			);
 			path = Positions;
 			sourceTree = "<group>";
@@ -124,6 +138,7 @@
 			children = (
 				F1DCE85156EA4E31F87EEA98 /* Resources */,
 				D47E26F27707E93B36419926 /* Screens */,
+				AA000001000000000000A006 /* PreviewSupport */,
 				1CEC406F79407BFE1364BFDB /* ContentView.swift */,
 				4217EF35642805A967ED7490 /* OpenHLApp.swift */,
 			);
@@ -140,6 +155,8 @@
 		C583900E4696E03F3FFA7777 /* AddressEntry */ = {
 			isa = PBXGroup;
 			children = (
+				AA000001000000000000A001 /* AddressEntryViewModel.swift */,
+				AA000001000000000000A002 /* AddressEntryView.swift */,
 			);
 			path = AddressEntry;
 			sourceTree = "<group>";
@@ -153,6 +170,15 @@
 				55531380BEFB70BC2727D7E1 /* Positions */,
 			);
 			path = Screens;
+			sourceTree = "<group>";
+		};
+		AA000001000000000000A006 /* PreviewSupport */ = {
+			isa = PBXGroup;
+			children = (
+				AA000001000000000000A005 /* PreviewHyperliquidClient.swift */,
+				AA000001000000000000A007 /* UITestStubClient.swift */,
+			);
+			path = PreviewSupport;
 			sourceTree = "<group>";
 		};
 		F1DCE85156EA4E31F87EEA98 /* Resources */ = {
@@ -290,6 +316,12 @@
 			files = (
 				7F4780A25BCFFF246E4FA91C /* ContentView.swift in Sources */,
 				ECC660761D019BECC56E9F2E /* OpenHLApp.swift in Sources */,
+				AA000001000000000000AA01 /* AddressEntryViewModel.swift in Sources */,
+				AA000001000000000000AA02 /* AddressEntryView.swift in Sources */,
+				AA000001000000000000AA03 /* PositionsViewModel.swift in Sources */,
+				AA000001000000000000AA04 /* PositionsView.swift in Sources */,
+				AA000001000000000000AA05 /* PreviewHyperliquidClient.swift in Sources */,
+				AA000001000000000000AA06 /* UITestStubClient.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
