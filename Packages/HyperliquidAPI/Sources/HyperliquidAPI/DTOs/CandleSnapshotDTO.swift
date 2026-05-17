@@ -33,6 +33,31 @@ internal struct CandleDTO: Decodable, Sendable {
     }
 }
 
+extension CandleDTO {
+    /// Map a single `CandleDTO` to a `Candle`, falling back to
+    /// `.oneHour` if the wire interval is unknown (matches the
+    /// defensive posture of `[CandleDTO].toCandles()` which drops
+    /// unknown intervals — here we cannot drop because the WS
+    /// `candle` channel emits a single bar per frame; an unknown
+    /// interval is a forward-compat surprise we'd rather render than
+    /// silently swallow).
+    func toDomain() -> Candle {
+        let interval = CandleInterval(rawValue: i) ?? .oneHour
+        return Candle(
+            coin: s,
+            interval: interval,
+            openTime: Date(timeIntervalSince1970: TimeInterval(t) / 1000.0),
+            closeTime: Date(timeIntervalSince1970: TimeInterval(closeTime) / 1000.0),
+            open: o,
+            close: c,
+            high: h,
+            low: l,
+            volume: v,
+            tradeCount: n
+        )
+    }
+}
+
 extension Array where Element == CandleDTO {
     /// Map an array of `CandleDTO` to `[Candle]`, decoding the interval
     /// string. Drops bars with an unknown interval (defensive — in

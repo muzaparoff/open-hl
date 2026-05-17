@@ -14,15 +14,25 @@ import SwiftUI
 /// (`PositionsView`), Orders (`OrdersView`), and History (`FillsView`).
 /// Each sub-view owns its own `SnapshotViewModel` instance with the
 /// saved address, so refreshes are independent per section.
+///
+/// Phase 4: when `liveStore` is provided, subscribes to `webData2` for the
+/// current address and applies updates to the Portfolio and Orders sub-view
+/// models in place — no re-fetch required.
 struct WalletView: View {
     let client: any HyperliquidClient
     let addressStore: any AddressStore
     let clock: any Clock
+    var liveStore: LiveStore? = nil
     var onOpenSettings: (() -> Void)? = nil
 
     @State private var savedAddress: Address?
     @State private var showAddressEntry: Bool = false
     @State private var selectedSection: Section = .portfolio
+
+    // Sub-view models held at this level so the webData2 subscription
+    // can call applyWebData2(_:) on them without triggering view rebuilds.
+    @State private var positionsVM: PositionsViewModel?
+    @State private var ordersVM: OrdersViewModel?
 
     enum Section: String, CaseIterable, Identifiable {
         case portfolio = "Portfolio"
@@ -55,6 +65,17 @@ struct WalletView: View {
             }
             .onAppear {
                 savedAddress = addressStore.load()
+            }
+            .task(id: savedAddress) {
+                // Subscribe to webData2 for the current address. Restarts
+                // whenever the address changes (id: savedAddress). Cancelled
+                // on view disappear by SwiftUI.
+                guard let address = savedAddress, let store = liveStore else { return }
+                let updates = await store.webData2(for: address)
+                for await payload in updates {
+                    positionsVM?.applyWebData2(payload)
+                    ordersVM?.applyWebData2(payload)
+                }
             }
         }
         .sheet(isPresented: $showAddressEntry) {
@@ -121,7 +142,26 @@ struct WalletView: View {
     // MARK: - Connected wallet content
 
     private func connectedContent(for address: Address) -> some View {
-        VStack(spacing: 0) {
+        // Resolve sub-view models. These are @State vars so they survive
+        // tab switches and segment changes. The lazy init pattern uses
+        // `?? PositionsViewModel.positions(...)` in a helper so the
+        // ViewBuilder switch stays clean.
+        let resolvedPositionsVM = positionsVM ?? PositionsViewModel.positions(client: client, address: address)
+        let resolvedOrdersVM = ordersVM ?? OrdersViewModel.orders(client: client, address: address)
+
+        return VStack(spacing: 0) {
+            // Stale indicator — shown above the segment picker when connection
+            // is stale or reconnecting.
+            if liveStore?.connectionState == .stale {
+                HStack {
+                    Spacer()
+                    StaleIndicatorView()
+                    Spacer()
+                }
+                .padding(.top, 4)
+                .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+            }
+
             // Address header
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -163,7 +203,7 @@ struct WalletView: View {
             switch selectedSection {
             case .portfolio:
                 PositionsView(
-                    viewModel: .positions(client: client, address: address),
+                    viewModel: resolvedPositionsVM,
                     onAddressChanged: { _ in
                         savedAddress = addressStore.load()
                     },
@@ -171,14 +211,20 @@ struct WalletView: View {
                     addressStore: addressStore,
                     clock: clock
                 )
+                .onAppear {
+                    if positionsVM == nil { positionsVM = resolvedPositionsVM }
+                }
             case .balance:
                 BalanceHistoryView(
                     viewModel: .balance(client: client, address: address)
                 )
             case .orders:
                 OrdersView(
-                    viewModel: .orders(client: client, address: address)
+                    viewModel: resolvedOrdersVM
                 )
+                .onAppear {
+                    if ordersVM == nil { ordersVM = resolvedOrdersVM }
+                }
             case .history:
                 FillsView(
                     viewModel: .fills(client: client, address: address)

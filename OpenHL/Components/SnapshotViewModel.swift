@@ -63,6 +63,27 @@ final class SnapshotViewModel<Snapshot: Sendable & Equatable>: Sendable {
         }
     }
 
+    /// Apply a live snapshot delivered by the WebSocket layer.
+    /// Replaces `.loaded` state in place so the view re-renders immediately.
+    /// The supplied `snapshot` is passed through `postProcess` first so
+    /// sorting/filtering rules stay consistent between REST and WS data.
+    /// No-op when there is no prior loaded snapshot — WS data should not
+    /// pre-empt the cold-load `.loading` state.
+    func applyLiveSnapshot(_ snapshot: Snapshot) {
+        guard lastLoaded != nil else { return }
+        state = .loaded(postProcess(snapshot))
+    }
+
+    /// Mutate the currently-loaded snapshot in place via a transform.
+    /// The transform receives the current snapshot and returns the new one.
+    /// The result is stored **without** re-applying `postProcess` because the
+    /// caller is responsible for any post-processing (e.g. `applyMids`
+    /// already filters unchanged values). No-op if not in `.loaded` state.
+    func mutateLoaded(_ transform: (Snapshot) -> Snapshot) {
+        guard case .loaded(let current) = state else { return }
+        state = .loaded(transform(current))
+    }
+
     /// Cold-start load. No-op unless `state == .idle`.
     func load() async {
         guard case .idle = state else { return }

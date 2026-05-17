@@ -19,6 +19,13 @@ extension SnapshotViewModel where Snapshot == [OpenOrder] {
         )
     }
 
+    /// Apply a live `WebData2` update to the loaded orders snapshot.
+    /// Routes through `applyLiveSnapshot` so `postProcess` (the sort) is
+    /// applied consistently. No-op until the first REST fetch completes.
+    func applyWebData2(_ payload: WebData2) {
+        applyLiveSnapshot(payload.openOrders)
+    }
+
     /// Sort by `placedAt` descending; stable secondary by coin.
     private static func sortByPlacedAt(_ orders: [OpenOrder]) -> [OpenOrder] {
         orders.sorted { lhs, rhs in

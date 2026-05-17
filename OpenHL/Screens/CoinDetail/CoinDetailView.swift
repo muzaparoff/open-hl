@@ -8,6 +8,10 @@ import SwiftUI
 /// Coin detail screen: header price + 24h change, interval picker,
 /// native Swift Charts candlestick, stats row. Real Hyperliquid data
 /// from `candleSnapshot`.
+///
+/// Phase 4: when `liveStore` is provided, subscribes to `activeAssetCtx`
+/// (live mark/funding/OI tick) and `candle` (live current-bar update) for
+/// the displayed coin. Subscriptions are scoped to view lifetime via `.task`.
 struct CoinDetailView: View {
     @State var viewModel: CoinDetailViewModel
     /// Optional favorites store. When provided, a star button appears in
@@ -15,6 +19,10 @@ struct CoinDetailView: View {
     /// without navigating back. `nil` only in standalone previews that are
     /// not embedded in the Markets navigation stack.
     var favoritesStore: (any FavoriteCoinsStore)?
+    /// Optional live store. When provided, the header price and stats row
+    /// update in real time from `activeAssetCtx`; the last candle bar is
+    /// patched in place from the `candle` channel.
+    var liveStore: LiveStore? = nil
 
     // Sheet presentation
     @State private var showingCustomSheet = false
@@ -26,6 +34,17 @@ struct CoinDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // Stale indicator sits above the price header when the
+                // connection is stale so the user knows prices may lag.
+                if liveStore?.connectionState == .stale {
+                    HStack {
+                        Spacer()
+                        StaleIndicatorView()
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.3)))
+                }
                 header
                 intervalChipPicker
                 chartSection
@@ -63,6 +82,26 @@ struct CoinDetailView: View {
             guard let store = favoritesStore else { return }
             for await updated in store.didChange {
                 isFavorite = updated.contains(viewModel.market.coin)
+            }
+        }
+        .task(id: viewModel.market.coin) {
+            // Subscribe to activeAssetCtx for live header stats.
+            guard let store = liveStore else { return }
+            let coin = viewModel.market.coin
+            let ctxStream = await store.activeAssetCtx(coin: coin)
+            for await ctx in ctxStream {
+                viewModel.applyAssetCtx(ctx)
+            }
+        }
+        .task(id: "\(viewModel.market.coin):\(viewModel.interval.rawValue)") {
+            // Subscribe to the live candle for the current coin+interval.
+            // Restarts on interval change so we always track the right bar.
+            guard let store = liveStore else { return }
+            let coin = viewModel.market.coin
+            let interval = viewModel.interval
+            let candleStream = await store.candle(coin: coin, interval: interval)
+            for await live in candleStream {
+                viewModel.applyLiveCandle(live)
             }
         }
         .refreshable {

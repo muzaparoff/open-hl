@@ -1054,3 +1054,99 @@ In Debug builds without provisioning, the entitlement may be absent — that's f
 - No syncing of the toggle state itself across devices (§26.1 explains why).
 - No alert when a remote write lands. The favorites and address view models already observe their stores and re-render automatically.
 
+---
+
+## 28. WebSocket live prices (Phase 4)
+
+Phase 4 brings live data over `wss://api.hyperliquid.xyz/ws`. REST snapshots still run on cold-start and on pull-to-refresh; the WebSocket is an **overlay** that supersedes the REST values when fresh data arrives. No view-model state machines were rewritten — view models gained `apply*` methods that mutate the loaded snapshot in place.
+
+§27 (Phase 3g — Alerts POC) intentionally skipped; that code is on disk but its architecture entry is deferred to a future session.
+
+### 28.1 Module layout
+
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/WebSocket/` — pure transport + decoder layer, no app-target dependency.
+  - `WebSocketTransport.swift` — `protocol WebSocketTransport`, `actor URLSessionWebSocketTransport`, `final class StubWebSocketTransport`.
+  - `SubscriptionRequest.swift` — `enum SubscriptionRequest: Encodable` with `.allMids / .activeAssetCtx(coin:) / .candle(coin:interval:) / .webData2(user:)`.
+  - `StreamMessage.swift` — `enum StreamMessage` with `.mids / .activeAssetCtx / .candle / .webData2 / .subscriptionAck / .unknown`, plus public domain types `AssetContext` and `WebData2`.
+  - `ReconnectMachine.swift` — pure `struct ReconnectMachine` + `enum ConnectionState` + `enum DisconnectReason`.
+- `Packages/HyperliquidAPI/Sources/HyperliquidAPI/HyperliquidStream.swift` — `protocol HyperliquidStream` + `actor URLSessionHyperliquidStream`.
+- `OpenHL/Services/LiveStore.swift` — `final class LiveStore` (app-target coordinator) + `StubHyperliquidStream` for previews/UI tests.
+- `OpenHL/Components/StaleIndicatorView.swift` — "Reconnecting…" pill.
+
+### 28.2 Channels and what they update
+
+| Channel | Subscription scope | Wire shape | View it updates |
+|---|---|---|---|
+| `allMids` | global (1 subscription per session) | `{coin: mid_string}` dict | every `MarketRowView` price |
+| `activeAssetCtx` | per coin, while CoinDetail is on screen | `{coin, ctx: {markPx, midPx, funding, ...}}` | CoinDetail header + stats row |
+| `candle` | per (coin, interval), while CoinDetail is on screen | one `Candle` bar per tick (the current open bar) | CoinDetail chart's last element |
+| `webData2` | per address, while Wallet has a saved address | complete account dump (`clearinghouseState`, `openOrders`, `meta`, `assetCtxs`, `serverTime`, `spotState`, …) | Wallet → Portfolio + Orders simultaneously |
+
+`webData2` is the heaviest channel; it carries the entire account state on every emit (not deltas). The decoder ignores spot/vault/twap fields we don't surface in v1 (they decode without error so future phases can pick them up without re-curling).
+
+### 28.3 Concurrency model
+
+- `actor URLSessionHyperliquidStream` owns the single shared `WebSocketTransport`. It multiplexes subscriptions and fans incoming messages to a `[UUID: AsyncStream.Continuation<T>]` per channel — the same multi-subscriber pattern `FavoriteCoinsStore.didChange` uses (§19).
+- `final class LiveStore` is the app-side coordinator. It is not `@MainActor`; its public state projection (`connectionState: LiveStoreConnectionState`) is `@MainActor`-published so SwiftUI can observe it.
+- View models are `@MainActor` and remain `Observable`. Their new `apply*` methods are also `@MainActor`-isolated and mutate `state.loaded` in place via a `mutateLoaded(_:)` hook on `SnapshotViewModel` (no replay through `postProcess`, no state-machine transition).
+- Views subscribe in `.task { for await x in liveStore.mids() { viewModel.applyMids(x) } }` — SwiftUI cancels these subscriptions automatically on view disappear; no manual unsubscribe.
+
+### 28.4 Lifecycle
+
+- Scene-phase driven. `RootTabShell.onChange(of: scenePhase)` calls:
+  - `.active` → `liveStore.sceneDidActivate()` → opens the socket if needed, re-issues all subscriptions.
+  - `.background` → `liveStore.sceneDidBackground()` → cleanly cancels the task, transitions to `.disconnected(.backgrounded)`.
+- The app does **not** hold the socket open in background. iOS would kill it anyway within seconds; reconnecting on foreground is cheaper than a hung task. (Alerts in background are Phase 3g's domain via `BGAppRefreshTask`.)
+
+### 28.5 Reconnect machine
+
+Pure `struct ReconnectMachine` — no I/O, no clock side-effects, takes `now: Date` on every call. Schedule:
+
+```
+delay_seconds(attempt) = min(60, 2^attempt + random_in([0, 1)))
+```
+
+- `attempt = 1` → delay ≈ 2–3 s
+- `attempt = 6` → delay ≈ 64–65 s → clamped to 60
+- `connectionSucceeded(at:)` resets attempt to 0
+
+The randomness is per-call (each `connectionFailed` call produces an independent `nextAttemptAt`); tests inject a `FixedClock` and assert the schedule monotonically increases until clamp.
+
+### 28.6 REST ↔ WebSocket reconciliation
+
+- REST snapshot on cold-start, immediately. WebSocket starts subscribing in parallel.
+- `webData2.serverTime` (or `Candle.openTime` for candles) is the timestamp; the live store only applies a message if it is newer than the REST `fetchedAt` already held in the view model's loaded state.
+- View models keep their existing `lastLoaded` field; the live store does not change the state-machine state (no `.loading` after a live update). A live update on `.loaded` stays on `.loaded`; a live update on `.error(_, lastLoaded:)` does not auto-clear the error (the user controls retry).
+
+### 28.7 Staleness
+
+`LiveStore.connectionState` is one of:
+- `.connected` — socket connected, last message within 10 s.
+- `.stale` — socket connected but ≥ 10 s since last message.
+- `.reconnecting` — actively retrying.
+- `.disconnected` — initial state or backgrounded.
+
+The 10 s threshold balances "fast detection of a quietly-dead socket" against "don't flap on a normal 5–8 s gap between `allMids` ticks." `StaleIndicatorView` shows a small "Reconnecting…" pill in `.stale` or `.reconnecting`; hidden in `.connected`.
+
+### 28.8 Buffer policy per channel
+
+- `allMids` — latest-wins, drop prior. One snapshot is enough; we never replay history.
+- `activeAssetCtx` — latest-wins per coin.
+- `candle` — latest-wins per (coin, interval), replaces the chart's last bar.
+- `webData2` — latest-wins per address. Subsequent updates replace the entire connected state.
+
+No bounded queue, no flow control. The `AsyncStream` continuation buffer is `.unbounded` and Swift's runtime drops on next iteration if subscribers fall behind — acceptable for our update rate.
+
+### 28.9 Stub paths for tests and previews
+
+- `StubWebSocketTransport` — script a queue of `Data` payloads; tests call `enqueue(...)` then assert downstream behavior.
+- `StubHyperliquidStream` (in `OpenHL/Services/LiveStore.swift`, `#if DEBUG`) — bypasses the transport entirely, emits BTC ±$1 every second on `mids()` for UI smoke tests and SwiftUI previews. Used when `OPENHL_UI_TEST_STUB` is set.
+
+### 28.10 What this section is *not*
+
+- No L2 order book or trades feed. Deferred to a future phase; channels exist server-side but their UI surfaces aren't designed.
+- No WebSocket-driven alerts. Phase 3g's `BGAppRefreshTask` + REST polling is unchanged.
+- No multi-address `webData2` (one connected address at a time).
+- No live updates on the Balance segment — `webData2` doesn't carry the `portfolio` time-series; that view stays REST-only.
+- No "reduce data usage" toggle in Settings. If a user objects to cellular data, that's a future phase.
+

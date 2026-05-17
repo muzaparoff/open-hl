@@ -15,6 +15,8 @@ struct OpenHLApp: App {
     /// Non-nil only in production. UI-test stubs use `nil` so iCloud is never touched.
     private let backedAddressStore: ICloudBackedAddressStore?
     private let backedFavoritesStore: ICloudBackedFavoriteCoinsStore?
+    /// Live WebSocket store. `nil` in UI-test stub paths that must not touch the network.
+    private let liveStore: LiveStore?
 
     init() {
         self.clock = SystemClock()
@@ -49,6 +51,10 @@ struct OpenHLApp: App {
                 self.backupToggle = InMemoryICloudBackupToggle(initial: false)
                 self.backedAddressStore = nil
                 self.backedFavoritesStore = nil
+                // Stub stream so UI tests see simulated live prices without
+                // a real WebSocket connection.
+                let stubStream = StubHyperliquidStream()
+                self.liveStore = LiveStore(stream: stubStream, clock: clock)
                 AlertScheduler.shared.configure(
                     rulesStore: memRules,
                     client: memClient,
@@ -74,6 +80,10 @@ struct OpenHLApp: App {
                 self.backupToggle = InMemoryICloudBackupToggle(initial: false)
                 self.backedAddressStore = nil
                 self.backedFavoritesStore = nil
+                // Reset path still gets a live WebSocket (it exercises the
+                // real address-entry flow against the real network).
+                let wsStream = URLSessionHyperliquidStream()
+                self.liveStore = LiveStore(stream: wsStream, clock: clock)
                 AlertScheduler.shared.configure(
                     rulesStore: resetRules,
                     client: client,
@@ -120,6 +130,11 @@ struct OpenHLApp: App {
         let rules = UserDefaultsAlertRulesStore()
         self.rulesStore = rules
 
+        // Production WebSocket stream + live store. One instance; the
+        // scene-phase observer in RootTabShell drives connect/disconnect.
+        let wsStream = URLSessionHyperliquidStream()
+        self.liveStore = LiveStore(stream: wsStream, clock: clock)
+
         // Wire AlertScheduler. BG task registration happens in body's
         // onAppear (via scene lifecycle) but configure must happen here so
         // the scheduler has its dependencies before any BG launch.
@@ -141,6 +156,7 @@ struct OpenHLApp: App {
                 backupToggle: backupToggle,
                 backedAddressStore: backedAddressStore,
                 backedFavoritesStore: backedFavoritesStore,
+                liveStore: liveStore,
                 clock: clock
             )
             .onAppear {
@@ -172,11 +188,14 @@ struct RootTabShell: View {
     let backupToggle: any ICloudBackupToggle
     let backedAddressStore: ICloudBackedAddressStore?
     let backedFavoritesStore: ICloudBackedFavoriteCoinsStore?
+    let liveStore: LiveStore?
     let clock: any Clock
 
     @State private var marketsVM: MarketsViewModel
     @State private var selectedTab: Tab = .markets
     @State private var showSettings = false
+
+    @Environment(\.scenePhase) private var scenePhase
 
     enum Tab {
         case markets, wallet
@@ -190,6 +209,7 @@ struct RootTabShell: View {
         backupToggle: any ICloudBackupToggle,
         backedAddressStore: ICloudBackedAddressStore?,
         backedFavoritesStore: ICloudBackedFavoriteCoinsStore?,
+        liveStore: LiveStore?,
         clock: any Clock
     ) {
         self.client = client
@@ -199,6 +219,7 @@ struct RootTabShell: View {
         self.backupToggle = backupToggle
         self.backedAddressStore = backedAddressStore
         self.backedFavoritesStore = backedFavoritesStore
+        self.liveStore = liveStore
         self.clock = clock
         _marketsVM = State(initialValue: .markets(client: client))
     }
@@ -210,6 +231,7 @@ struct RootTabShell: View {
                 client: client,
                 favoritesStore: favoritesStore,
                 clock: clock,
+                liveStore: liveStore,
                 onOpenSettings: { showSettings = true }
             )
             .tabItem {
@@ -222,13 +244,25 @@ struct RootTabShell: View {
                 client: client,
                 addressStore: addressStore,
                 clock: clock,
+                liveStore: liveStore,
                 onOpenSettings: { showSettings = true }
             )
+
             .tabItem {
                 Label("Wallet", systemImage: "wallet.pass")
             }
             .tag(Tab.wallet)
             .accessibilityLabel("Wallet tab")
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                liveStore?.sceneDidActivate()
+            case .background:
+                liveStore?.sceneDidBackground()
+            default:
+                break
+            }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(

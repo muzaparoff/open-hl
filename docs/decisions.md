@@ -369,3 +369,26 @@ Implemented as the pure static function `CandleInterval.bestFit(for: DateInterva
 - *Skip backup entirely in v1.* Rejected: the address-entry friction on a new device is real and KVS is the cheapest possible cure.
 - *Encrypt the payload before writing to KVS.* Rejected: KVS is already inside the user's iCloud account (per-Apple-ID, encrypted at rest by Apple). Adding app-layer encryption only matters under a threat model where the user's Apple ID is compromised, in which case the attacker already has every other app's KVS payload too. Not worth the key-management complexity for a public address + a set of coin symbols.
 
+---
+
+## 2026-05-17 — Phase 4: WebSocket live prices over `URLSessionWebSocketTask`
+
+**Context:** Phase 4 brings live data over `wss://api.hyperliquid.xyz/ws`. Architecture §3 always anticipated this — REST is for cold-start, WebSocket is for "stays current." Open choices: (a) `URLSessionWebSocketTask` vs `Network.framework`; (b) whether the live store is an actor or a `@MainActor` class; (c) one shared transport multiplexed across channels vs one connection per channel; (d) the buffer/drop policy when subscribers fall behind; (e) the stale-data threshold.
+
+**Decision:** `URLSessionWebSocketTask` wrapped in a `protocol WebSocketTransport` for testability. Live store is `actor URLSessionHyperliquidStream` in `HyperliquidAPI` (transport-level) plus `final class LiveStore` in the app target (lifecycle + view-model fan-out). **One shared transport** multiplexes every subscription. Buffer policy is "latest-wins" per channel (`allMids`, `activeAssetCtx`, `webData2`) with `AsyncStream.continuation.bufferingPolicy = .unbounded` — Swift's runtime drops if subscribers fall behind. Staleness threshold is **10 s without any message** while the socket is "connected"; `LiveStore.connectionState` projects `.connected | .stale | .reconnecting | .disconnected`. View-model integration is **side-channel `apply*` methods** that mutate `state.loaded` in place — no state-machine rewrites.
+
+**Rationale:**
+- *Why `URLSessionWebSocketTask` over `Network.framework`:* same `URLSession` pattern we use for REST (consistent error mapping, lifecycle, proxy/captive-portal handling). `Network.framework` is lower-level than we need. CLAUDE.md says no third-party SDKs — `URLSessionWebSocketTask` keeps us in the Apple-stdlib lane.
+- *Why one shared transport:* Hyperliquid's WS multiplexes — the `subscribe` message carries a discriminator and emits messages with a `channel` field. One transport means one reconnect machine, one heartbeat, one TLS handshake.
+- *Why `actor` for the stream layer, `final class` for `LiveStore`:* the stream actor serializes mutable subscription state and reconnect attempts — exactly what actors are for. `LiveStore` doesn't have shared mutable state of its own; it composes the stream and bridges to `@MainActor` views. Making `LiveStore` an actor would force `await` into every view's `.task` for no concurrency benefit.
+- *Why "latest-wins" not bounded queue:* the data is presentational. A user looking at the BTC mid does not benefit from seeing every tick during a redraw — only the most recent. `AsyncStream.unbounded` + SwiftUI's natural diff cycle is simpler than an explicit ring buffer.
+- *Why side-channel `apply*` methods on view models:* the existing state machines are correct for "fetch a snapshot and show it." Live updates are not transitions; they refine already-`.loaded` data. Forcing every WS tick through the state machine would either flicker (`.loaded → .loading → .loaded`) or require new "refreshing-in-place" cases the rest of the app doesn't need.
+- *Why 10 s staleness threshold:* observed `allMids` cadence is roughly every 1 s but bursty; a 3 s threshold flapped on normal gaps in capture testing, a 30 s threshold left a dead socket undetected for half a minute. 10 s sits in the middle.
+- *Why no live updates on the Balance segment in Wallet:* `webData2` carries `clearinghouseState` and `openOrders` but NOT the `portfolio` time series. Trying to derive a time series from a single point-in-time `webData2` would mean re-querying REST anyway; cleaner to leave Balance on its existing REST pull-to-refresh path.
+
+**Alternatives considered:**
+- *Per-channel WebSocket connections.* Rejected: 4× the TLS handshakes and reconnect storms with zero benefit.
+- *`actor LiveStore` with `@MainActor` projection.* Rejected as overkill — `LiveStore` doesn't have mutable state worth serializing.
+- *Bounded queue per subscriber.* Rejected: dropping the freshest message during a backlog is worse UX than dropping older ones.
+- *Apply WS updates through the state machine (a `.refreshing` state).* Rejected: every screen would need a new case the rest of the app doesn't understand, and the chart would flicker.
+- *Keep the socket alive in background to deliver alerts.* Rejected: iOS kills the socket within seconds anyway. Phase 3g's `BGAppRefreshTask` is the right primitive for background alerts.

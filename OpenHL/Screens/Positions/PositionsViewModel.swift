@@ -19,6 +19,13 @@ extension SnapshotViewModel where Snapshot == ClearinghouseState {
         )
     }
 
+    /// Apply a live `WebData2` update to the loaded positions snapshot.
+    /// Routes through `applyLiveSnapshot` so `postProcess` (the sort) is
+    /// applied consistently. No-op until the first REST fetch completes.
+    func applyWebData2(_ payload: WebData2) {
+        applyLiveSnapshot(payload.clearinghouseState)
+    }
+
     /// Sort positions by absolute notional descending; stable secondary by coin.
     private static func sortByAbsoluteNotional(_ state: ClearinghouseState) -> ClearinghouseState {
         let sorted = state.positions.sorted { lhs, rhs in

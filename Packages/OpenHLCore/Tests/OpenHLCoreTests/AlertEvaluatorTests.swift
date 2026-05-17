@@ -65,7 +65,7 @@ struct EvaluationResult: Sendable {
 enum AlertEvaluator {
     static func evaluate(
         rules: [AlertRule],
-        markets: [String: StubMarket],     // uses StubMarket because Market is in HyperliquidAPI
+        markets: [String: StubMarket],  // uses StubMarket because Market is in HyperliquidAPI
         walletAccountValue: Decimal?,
         now: Date
     ) -> EvaluationResult {
@@ -307,7 +307,7 @@ struct AlertEvaluatorTests {
 
     @Test("Cooldown: lastFiredAt = now - 1h, cooldown 6h → does not fire even if condition matches")
     func cooldownBlocksFiring() {
-        let lastFired = referenceDate.addingTimeInterval(-3600)     // 1 hour ago
+        let lastFired = referenceDate.addingTimeInterval(-3600)  // 1 hour ago
         let rule = AlertRule(
             coin: "BTC", condition: .aboveAbsolute(75_000),
             cooldown: 6 * 3600, lastFiredAt: lastFired
@@ -322,7 +322,7 @@ struct AlertEvaluatorTests {
 
     @Test("Cooldown: lastFiredAt = now - 7h, cooldown 6h → fires (elapsed > cooldown)")
     func cooldownExpiredAllowsFiring() {
-        let lastFired = referenceDate.addingTimeInterval(-7 * 3600) // 7 hours ago
+        let lastFired = referenceDate.addingTimeInterval(-7 * 3600)  // 7 hours ago
         let rule = AlertRule(
             coin: "BTC", condition: .aboveAbsolute(75_000),
             cooldown: 6 * 3600, lastFiredAt: lastFired
@@ -337,7 +337,7 @@ struct AlertEvaluatorTests {
 
     @Test("Cooldown: lastFiredAt = exactly now - cooldown → does not fire (boundary: not strictly elapsed)")
     func cooldownExactlyBoundaryDoesNotFire() {
-        let lastFired = referenceDate.addingTimeInterval(-6 * 3600) // exactly 6 hours ago
+        let lastFired = referenceDate.addingTimeInterval(-6 * 3600)  // exactly 6 hours ago
         let rule = AlertRule(
             coin: "BTC", condition: .aboveAbsolute(75_000),
             cooldown: 6 * 3600, lastFiredAt: lastFired
@@ -372,7 +372,7 @@ struct AlertEvaluatorTests {
         // The real evaluator will have a dedicated WalletAccountValue condition variant;
         // this test uses the agreed graceful-nil contract: missing market → no fire.
         let rule = AlertRule(coin: "WALLET", condition: .aboveAbsolute(10_000))
-        let markets: [String: StubMarket] = [:]   // no WALLET market entry
+        let markets: [String: StubMarket] = [:]  // no WALLET market entry
         let result = AlertEvaluator.evaluate(
             rules: [rule], markets: markets,
             walletAccountValue: nil, now: referenceDate
@@ -413,7 +413,7 @@ struct AlertEvaluatorTests {
     @Test("Multiple rules: only matching rules fire (mixed hit/miss)")
     func multipleRulesMixedHitMiss() {
         let r1 = AlertRule(coin: "BTC", condition: .aboveAbsolute(75_000))  // fires
-        let r2 = AlertRule(coin: "ETH", condition: .aboveAbsolute(5_000))   // no fire (mark 1900)
+        let r2 = AlertRule(coin: "ETH", condition: .aboveAbsolute(5_000))  // no fire (mark 1900)
         let markets = stubMarkets([
             ("BTC", 80_000, 0),
             ("ETH", 1_900, 0),
@@ -442,7 +442,7 @@ struct AlertEvaluatorTests {
     @Test("rulesToUpdate contains only fired rules with lastFiredAt stamped to now")
     func rulesToUpdateContainsOnlyFiredRules() {
         let r1 = AlertRule(coin: "BTC", condition: .aboveAbsolute(75_000))  // fires
-        let r2 = AlertRule(coin: "ETH", condition: .aboveAbsolute(5_000))   // no fire
+        let r2 = AlertRule(coin: "ETH", condition: .aboveAbsolute(5_000))  // no fire
         let markets = stubMarkets([
             ("BTC", 80_000, 0),
             ("ETH", 1_900, 0),

@@ -159,7 +159,7 @@ final class CoinDetailViewModel {
     /// existing view code (`viewModel.interval`) keeps compiling unchanged.
     var interval: CandleInterval { mode.interval }
 
-    let market: Market
+    var market: Market
     private let client: any HyperliquidClient
     private let clock: any Clock
 
@@ -206,6 +206,57 @@ final class CoinDetailViewModel {
     /// For `.customRange`, callers should `validate(customRange:now:)` first.
     /// Automatically stores the range in `lastCustomRange` when the mode is
     /// `.customRange` so the sheet can pre-fill on next open.
+    /// Apply a live `AssetContext` update to the header market snapshot.
+    /// Called by the view's `.task` that subscribes to
+    /// `liveStore.activeAssetCtx(coin:)`.
+    func applyAssetCtx(_ ctx: AssetContext) {
+        market = Market(
+            coin: market.coin,
+            maxLeverage: market.maxLeverage,
+            szDecimals: market.szDecimals,
+            onlyIsolated: market.onlyIsolated,
+            markPrice: ctx.markPx,
+            midPrice: ctx.midPx,
+            prevDayPrice: ctx.prevDayPx,
+            openInterest: ctx.openInterest,
+            dayNotionalVolume: ctx.dayNotionalVolume,
+            fundingRate: ctx.funding
+        )
+    }
+
+    /// Apply a live mid-price update to the header. Called when the
+    /// Markets list receives `allMids` and the user happens to be on
+    /// Coin Detail — keeps the header in sync without waiting for
+    /// `activeAssetCtx`.
+    func applyMid(_ mid: Decimal) {
+        market = Market(
+            coin: market.coin,
+            maxLeverage: market.maxLeverage,
+            szDecimals: market.szDecimals,
+            onlyIsolated: market.onlyIsolated,
+            markPrice: mid,
+            midPrice: mid,
+            prevDayPrice: market.prevDayPrice,
+            openInterest: market.openInterest,
+            dayNotionalVolume: market.dayNotionalVolume,
+            fundingRate: market.fundingRate
+        )
+    }
+
+    /// Replace the last (current open) candle bar with a live tick.
+    /// Called by the view's candle subscription. If `state` is `.loaded`
+    /// and the bar shares its `openTime` with the last bar, it replaces
+    /// it; otherwise it is appended as a new bar.
+    func applyLiveCandle(_ live: Candle) {
+        guard case .loaded(var candles) = state, !candles.isEmpty else { return }
+        if let last = candles.last, last.openTime == live.openTime {
+            candles[candles.count - 1] = live
+        } else {
+            candles.append(live)
+        }
+        state = .loaded(candles)
+    }
+
     func setMode(_ newMode: Mode) {
         if case .customRange(let range) = newMode {
             lastCustomRange = range

@@ -17,6 +17,7 @@ struct MarketsView: View {
     let client: any HyperliquidClient
     let favoritesStore: any FavoriteCoinsStore
     let clock: any Clock
+    var liveStore: LiveStore? = nil
     var onOpenSettings: (() -> Void)? = nil
 
     @State private var searchText: String = ""
@@ -53,6 +54,17 @@ struct MarketsView: View {
                     // immediately, so we don't need a separate read-once.
                     for await updated in favoritesStore.didChange {
                         favorites = updated
+                    }
+                }
+                .task {
+                    // Subscribe to live allMids updates. The stream's
+                    // latest-wins buffering (bufferingNewest(1)) means
+                    // slow iteration never accumulates a backlog; we
+                    // always see the freshest mid snapshot.
+                    guard let store = liveStore else { return }
+                    let midsStream = await store.mids()
+                    for await mids in midsStream {
+                        viewModel.applyMids(mids)
                     }
                 }
                 .onChange(of: viewModel.state) { _, newState in
@@ -107,6 +119,19 @@ struct MarketsView: View {
         let rest = markets.filter { !favorites.contains($0.coin) }
 
         List {
+            // Stale/reconnecting indicator at the very top of the list.
+            if liveStore?.connectionState == .stale {
+                Section {
+                    HStack {
+                        Spacer()
+                        StaleIndicatorView()
+                        Spacer()
+                    }
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+
             if let banner {
                 Section {
                     ErrorBannerView(errorState: banner) {
@@ -159,7 +184,8 @@ struct MarketsView: View {
                     client: client,
                     clock: clock
                 ),
-                favoritesStore: favoritesStore
+                favoritesStore: favoritesStore,
+                liveStore: liveStore
             )
         } label: {
             MarketRowView(

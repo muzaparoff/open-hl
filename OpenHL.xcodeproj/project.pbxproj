@@ -50,6 +50,9 @@
 		AA3G00010000000000003GA3 /* AlertEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3G00010000000000003EA3 /* AlertEditorSheet.swift */; };
 		AA3G00010000000000003GA4 /* AlertScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3G00010000000000003EA4 /* AlertScheduler.swift */; };
 		AA3G00010000000000003GA5 /* NotificationPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3G00010000000000003EA5 /* NotificationPermissions.swift */; };
+		AA4H00010000000000004HA1 /* LiveStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4H00010000000000004EA1 /* LiveStore.swift */; };
+		AA4H00010000000000004HA2 /* StaleIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4H00010000000000004EA2 /* StaleIndicatorView.swift */; };
+		AA4P00010000000000004PC1 /* Phase4LiveStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4P00010000000000004PF1 /* Phase4LiveStoreTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +86,7 @@
 		AA000003C0000000000003F1 /* Phase3cValidateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase3cValidateTests.swift; sourceTree = "<group>"; };
 		AA000003C0000000000003F2 /* Phase3cViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase3cViewModelTests.swift; sourceTree = "<group>"; };
 		AA000003D0000000000003F3 /* Phase3dMarketsSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase3dMarketsSortTests.swift; sourceTree = "<group>"; };
+		AA4P00010000000000004PF1 /* Phase4LiveStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase4LiveStoreTests.swift; sourceTree = "<group>"; };
 		AA000003D0000000000003F4 /* Phase3dFavoriteCoinsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Phase3dFavoriteCoinsUITests.swift; sourceTree = "<group>"; };
 		F2A34E97FC8298BD529A0107 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA000001000000000000A001 /* AddressEntryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressEntryViewModel.swift; sourceTree = "<group>"; };
@@ -117,6 +121,8 @@
 		AA3G00010000000000003EA3 /* AlertEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertEditorSheet.swift; sourceTree = "<group>"; };
 		AA3G00010000000000003EA4 /* AlertScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertScheduler.swift; sourceTree = "<group>"; };
 		AA3G00010000000000003EA5 /* NotificationPermissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPermissions.swift; sourceTree = "<group>"; };
+		AA4H00010000000000004EA1 /* LiveStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStore.swift; sourceTree = "<group>"; };
+		AA4H00010000000000004EA2 /* StaleIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaleIndicatorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -188,6 +194,7 @@
 				AA000003C0000000000003F1 /* Phase3cValidateTests.swift */,
 				AA000003C0000000000003F2 /* Phase3cViewModelTests.swift */,
 				AA000003D0000000000003F3 /* Phase3dMarketsSortTests.swift */,
+				AA4P00010000000000004PF1 /* Phase4LiveStoreTests.swift */,
 			);
 			path = OpenHLTests;
 			sourceTree = "<group>";
@@ -234,6 +241,7 @@
 				AA000001000000000000A015 /* ViewErrorState.swift */,
 				AA000001000000000000A016 /* SnapshotViewModel.swift */,
 				AA000001000000000000A018 /* MarketRowView.swift */,
+				AA4H00010000000000004EA2 /* StaleIndicatorView.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -271,6 +279,7 @@
 			children = (
 				AA3G00010000000000003EA4 /* AlertScheduler.swift */,
 				AA3G00010000000000003EA5 /* NotificationPermissions.swift */,
+				AA4H00010000000000004EA1 /* LiveStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -495,6 +504,8 @@
 				AA3G00010000000000003GA3 /* AlertEditorSheet.swift in Sources */,
 				AA3G00010000000000003GA4 /* AlertScheduler.swift in Sources */,
 				AA3G00010000000000003GA5 /* NotificationPermissions.swift in Sources */,
+				AA4H00010000000000004HA1 /* LiveStore.swift in Sources */,
+				AA4H00010000000000004HA2 /* StaleIndicatorView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -506,6 +517,7 @@
 				AA000003C0000000000003C1 /* Phase3cValidateTests.swift in Sources */,
 				AA000003C0000000000003C2 /* Phase3cViewModelTests.swift in Sources */,
 				AA000003D0000000000003C3 /* Phase3dMarketsSortTests.swift in Sources */,
+				AA4P00010000000000004PC1 /* Phase4LiveStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

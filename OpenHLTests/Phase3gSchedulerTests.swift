@@ -166,7 +166,7 @@ private final class AlertScheduler: @unchecked Sendable {
                 fires = market.markPrice < t
             case .percentChange24h(let t, let dir):
                 switch dir {
-                case .up:   fires = market.dayChangeRatio >= t
+                case .up: fires = market.dayChangeRatio >= t
                 case .down: fires = market.dayChangeRatio <= -t
                 }
             }
@@ -202,8 +202,8 @@ private final class AlertScheduler: @unchecked Sendable {
 
     private func describeCondition(_ c: AppAlertCondition, market: Market) -> String {
         switch c {
-        case .aboveAbsolute(let t):    return "\(market.coin) above \(t)"
-        case .belowAbsolute(let t):    return "\(market.coin) below \(t)"
+        case .aboveAbsolute(let t): return "\(market.coin) above \(t)"
+        case .belowAbsolute(let t): return "\(market.coin) below \(t)"
         case .percentChange24h(let t, let d): return "\(market.coin) \(d) \(t)"
         }
     }
@@ -239,8 +239,8 @@ private final class SchedulerFakeClient: HyperliquidClient, @unchecked Sendable 
 
 // MARK: - Market test fixture helpers
 
-private extension Market {
-    static func make(
+extension Market {
+    fileprivate static func make(
         coin: String,
         markPrice: Decimal,
         prevDayPrice: Decimal

@@ -14,6 +14,37 @@ enum FixtureLoader {
         case readFailed(String, underlying: Swift.Error)
     }
 
+    /// Loads `<name>.jsonl` from the `Fixtures` subdirectory of the test bundle
+    /// and returns one `Data` per non-empty line.
+    ///
+    /// Each line in a `.jsonl` file is an independent JSON document (as
+    /// captured from a WebSocket session). Empty lines (trailing newline) are
+    /// silently ignored.
+    static func loadLines(_ name: String) throws -> [Data] {
+        let fileName = name.hasSuffix(".jsonl") ? name : "\(name).jsonl"
+        guard
+            let url = Bundle.module.url(
+                forResource: fileName,
+                withExtension: nil,
+                subdirectory: "Fixtures"
+            )
+        else {
+            throw Error.fileNotFound(fileName)
+        }
+        let raw: Data
+        do {
+            raw = try Data(contentsOf: url)
+        } catch {
+            throw Error.readFailed(fileName, underlying: error)
+        }
+        let text = String(decoding: raw, as: UTF8.self)
+        return
+            text
+            .components(separatedBy: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { Data($0.utf8) }
+    }
+
     /// Loads `<name>.json` from the `Fixtures` subdirectory of the test bundle.
     static func load(_ name: String) throws -> Data {
         let fileName = name.hasSuffix(".json") ? name : "\(name).json"

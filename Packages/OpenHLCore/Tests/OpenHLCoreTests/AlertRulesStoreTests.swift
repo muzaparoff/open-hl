@@ -53,7 +53,7 @@ struct AlertRule: Sendable, Codable, Identifiable, Equatable {
     var coin: String
     var condition: AlertCondition
     var isEnabled: Bool
-    var cooldown: TimeInterval          // seconds
+    var cooldown: TimeInterval  // seconds
     var lastFiredAt: Date?
 
     init(
@@ -220,7 +220,7 @@ final class UserDefaultsAlertRulesStore: AlertRulesStore, @unchecked Sendable {
 
     private static func load(from defaults: UserDefaults) -> [UUID: AlertRule] {
         guard let data = defaults.data(forKey: storageKey),
-              let array = try? JSONDecoder().decode([AlertRule].self, from: data)
+            let array = try? JSONDecoder().decode([AlertRule].self, from: data)
         else { return [:] }
         return Dictionary(uniqueKeysWithValues: array.map { ($0.id, $0) })
     }
@@ -233,8 +233,8 @@ final class UserDefaultsAlertRulesStore: AlertRulesStore, @unchecked Sendable {
 
 // MARK: - Test helpers
 
-private extension UserDefaults {
-    static func alertTestSuite() -> UserDefaults {
+extension UserDefaults {
+    fileprivate static func alertTestSuite() -> UserDefaults {
         let name = "com.openhl.tests.alertRules.\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: name)!
         suite.removePersistentDomain(forName: name)
@@ -295,7 +295,7 @@ struct InMemoryAlertRulesStoreTests {
         let id = UUID()
         let store = InMemoryAlertRulesStore()
         store.upsert(makeRule(id: id, coin: "BTC"))
-        store.upsert(makeRule(id: id, coin: "ETH"))   // same id, different coin
+        store.upsert(makeRule(id: id, coin: "ETH"))  // same id, different coin
         let all = store.all()
         #expect(all.count == 1)
         #expect(all.first?.coin == "ETH")
@@ -324,7 +324,7 @@ struct InMemoryAlertRulesStoreTests {
     func removeUnknownIdIsNoOp() {
         let rule = makeRule()
         let store = InMemoryAlertRulesStore(initial: [rule])
-        store.remove(id: UUID())      // different id
+        store.remove(id: UUID())  // different id
         #expect(store.all().count == 1)
     }
 
@@ -398,7 +398,7 @@ struct InMemoryAlertRulesStoreTests {
     func didChangeEmitsAfterUpsert() async {
         let store = InMemoryAlertRulesStore()
         var iterator = store.didChange.makeAsyncIterator()
-        _ = await iterator.next()   // consume initial empty emit
+        _ = await iterator.next()  // consume initial empty emit
 
         let rule = makeRule()
         store.upsert(rule)
@@ -412,7 +412,7 @@ struct InMemoryAlertRulesStoreTests {
         let rule = makeRule()
         let store = InMemoryAlertRulesStore(initial: [rule])
         var iterator = store.didChange.makeAsyncIterator()
-        _ = await iterator.next()   // consume initial emit
+        _ = await iterator.next()  // consume initial emit
 
         store.remove(id: rule.id)
         let emitted = await iterator.next()
@@ -424,7 +424,7 @@ struct InMemoryAlertRulesStoreTests {
         let rule = makeRule(isEnabled: true)
         let store = InMemoryAlertRulesStore(initial: [rule])
         var iterator = store.didChange.makeAsyncIterator()
-        _ = await iterator.next()   // consume initial emit
+        _ = await iterator.next()  // consume initial emit
 
         store.toggle(id: rule.id)
         let emitted = await iterator.next()
@@ -598,7 +598,7 @@ struct UserDefaultsAlertRulesStoreTests {
     func didChangeEmitsAfterUpsert() async {
         let store = UserDefaultsAlertRulesStore(defaults: .alertTestSuite())
         var iterator = store.didChange.makeAsyncIterator()
-        _ = await iterator.next()   // initial empty
+        _ = await iterator.next()  // initial empty
 
         let rule = makeRule()
         store.upsert(rule)
